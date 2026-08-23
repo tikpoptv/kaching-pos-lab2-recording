@@ -1,0 +1,40 @@
+name: Lab 2 feature
+description: Specify and deliver one POS Lab 2 feature through SDD
+title: "[Feature] "
+labels: ["lab2", "feature"]
+body:
+  - type: input
+    id: feature_id
+    attributes:
+      label: Feature ID and name
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User outcome
+    validations:
+      required: true
+  - type: textarea
+    id: traceability
+    attributes:
+      label: SRS traceability
+      description: List applicable FR, BR, and NFR identifiers.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: "Given ..., when ..., then ..."
+    validations:
+      required: true
+  - type: checkboxes
+    id: contract
+    attributes:
+      label: Engineering Contract readiness
+      options:
+        - label: Feature SDS is complete
+        - label: UI specification is complete or not applicable
+        - label: API specification is complete or not applicable
+        - label: Software Test Specification is complete

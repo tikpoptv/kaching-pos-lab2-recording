@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+package-lock.json.old
+# env & secrets
+.env
+*.env
+!.env.example
+# build output
+dist/
+build/
+# prisma
+server/prisma/*.db
+# logs & OS
+*.log
+.DS_Store
+.idea/
+.vscode/
+coverage/
