@@ -80,6 +80,80 @@ export interface SaleDto {
   items: SaleItemDto[];
 }
 
+export interface CalculatedTotals {
+  subtotal: Prisma.Decimal;
+  discountAmount: Prisma.Decimal;
+  vatAmount: Prisma.Decimal;
+  totalAmount: Prisma.Decimal;
+  subtotalStr: string;
+  discountAmountStr: string;
+  vatAmountStr: string;
+  totalAmountStr: string;
+}
+
+export function calculateSaleTotals(
+  items: Array<{ unitPriceSnapshot: Prisma.Decimal | string; quantity: number }>,
+  discountAmountInput: Prisma.Decimal | string = "0.00",
+  vatRateInput: Prisma.Decimal | string = "7.00"
+): CalculatedTotals {
+  let subtotal = new Prisma.Decimal("0.00");
+  for (const item of items) {
+    const price = new Prisma.Decimal(item.unitPriceSnapshot);
+    const lineAmount = price.mul(item.quantity);
+    subtotal = subtotal.add(lineAmount);
+  }
+
+  const discountAmount = new Prisma.Decimal(discountAmountInput);
+  const taxableTotal = Prisma.Decimal.max(new Prisma.Decimal("0.00"), subtotal.sub(discountAmount));
+  const vatRate = new Prisma.Decimal(vatRateInput);
+
+  // vatAmount = taxableTotal * vatRate / (100 + vatRate)
+  // Commercial satang rounding to 2 decimal places using Decimal.ROUND_HALF_UP (4)
+  const hundred = new Prisma.Decimal("100");
+  const vatAmount = taxableTotal
+    .mul(vatRate)
+    .div(hundred.add(vatRate))
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+  const totalAmount = subtotal.sub(discountAmount);
+
+  return {
+    subtotal,
+    discountAmount,
+    vatAmount,
+    totalAmount,
+    subtotalStr: subtotal.toFixed(2),
+    discountAmountStr: discountAmount.toFixed(2),
+    vatAmountStr: vatAmount.toFixed(2),
+    totalAmountStr: totalAmount.toFixed(2),
+  };
+}
+
+export async function recalculateSaleTotalsInDb(saleId: string): Promise<CalculatedTotals> {
+  const prisma = getPrisma();
+  const sale = await prisma.sale.findUnique({
+    where: { id: saleId },
+    include: { items: true },
+  });
+
+  if (!sale) {
+    throw new SaleNotFoundError(saleId);
+  }
+
+  const totals = calculateSaleTotals(sale.items, sale.discountAmount, "7.00");
+
+  await prisma.sale.update({
+    where: { id: saleId },
+    data: {
+      subtotal: totals.subtotal,
+      vatAmount: totals.vatAmount,
+      totalAmount: totals.totalAmount,
+    },
+  });
+
+  return totals;
+}
+
 export function formatSaleItemDto(item: SaleItem): SaleItemDto {
   return {
     id: item.id,
@@ -113,6 +187,7 @@ export function formatSaleDto(sale: Sale & { items?: SaleItem[] }): SaleDto {
     items: sale.items ? sale.items.map(formatSaleItemDto) : [],
   };
 }
+
 
 export async function createSale(): Promise<SaleDto> {
   const prisma = getPrisma();
@@ -294,6 +369,7 @@ export async function addItemToSale(
       },
     });
 
+    await recalculateSaleTotalsInDb(saleId);
     return { item: formatSaleItemDto(updated), isNew: false };
   } else {
     const newItem = await prisma.saleItem.create({
@@ -308,6 +384,7 @@ export async function addItemToSale(
       },
     });
 
+    await recalculateSaleTotalsInDb(saleId);
     return { item: formatSaleItemDto(newItem), isNew: true };
   }
 }
@@ -355,6 +432,7 @@ export async function updateSaleItemQuantity(
     },
   });
 
+  await recalculateSaleTotalsInDb(saleId);
   return formatSaleItemDto(updated);
 }
 
@@ -391,6 +469,7 @@ export async function removeSaleItem(
     where: { id: existingItem.id },
   });
 
+  await recalculateSaleTotalsInDb(saleId);
   return {
     success: true,
     message: "Item removed from cart.",
