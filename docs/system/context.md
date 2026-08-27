@@ -25,6 +25,12 @@ Kaching is a multi-store point-of-sale application for checkout, VAT-inclusive p
 - A completed sale and inventory outbox record are written atomically.
 - An uncertain card result prevents a second payment until reconciliation.
 
-## Lab 1 baseline
+## Lab 1 baseline and Lab 2 scope
 
-The baseline proves client-to-API connectivity and supplies an active global product catalog. It does not claim to implement the complete Feature A-S inventory. Lab 2 adds only the 3-4 features named by its separate brief.
+- **Lab 1 Baseline**: Proves client-to-API connectivity and supplies an active global product catalog (`Product` model).
+- **Lab 2 Scope**: Implements the core checkout engine consisting of four targeted features:
+  - **Feature-D**: Sale Lifecycle Management (Start sale, maintain state, cancel sale before completion).
+  - **Feature-E**: Cart and Sale-Item Management (Barcode scan, manual entry, product search, quantity adjustment, item removal).
+  - **Feature-F**: VAT-Inclusive Pricing and Total Calculation (Subtotal calculation, 7% VAT portion extraction, satang rounding, final total).
+  - **Feature-G**: Order-Level Discount Management (Discount % and THB amount entry, validation, satang rounding, automatic recalculation on cart change).
+

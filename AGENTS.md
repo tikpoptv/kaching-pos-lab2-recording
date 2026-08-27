@@ -26,14 +26,16 @@ Do not treat prose examples, TODO text, or agent suggestions as requirements. If
 
 ## Spec-Driven Development workflow
 
-Before coding a Lab 2 feature:
+Before coding a Lab 2 feature (Feature-D, Feature-E, Feature-F, or Feature-G):
 
-1. Create its GitHub Issue and assign it.
-2. Copy `docs/templates/feature-contract.md` into `docs/features/<feature-id>/contract.md`.
-3. Complete requirement traceability, UI states, API contract, data design, and test cases.
-4. Resolve every `TBD` that affects implementation or acceptance.
-5. Branch from `lab2-staging`, not `main`.
-6. Implement only the approved contract, run `npm test` and `npm run build`, then open a PR to `lab2-staging`.
+1. Refer to `docs/lab-02/source-evidence.md` and `docs/lab-02/poc-scope-and-issues.md`.
+2. Create its GitHub Issue (matching the exact issue title in `poc-scope-and-issues.md`) and assign it.
+3. Copy `docs/templates/feature-contract.md` into `docs/features/<feature-id>/contract.md`.
+4. Complete requirement traceability, UI states, API contract, data design, and test cases.
+5. Resolve every `TBD` that affects implementation or acceptance.
+6. Branch from `lab2-staging` (branch name: `feature/<issue>-<short-name>`), not `main`.
+7. Implement only the approved contract, run `npm test` and `npm run build`, then open a PR to `lab2-staging` adhering to the specified merge order (Feature-D -> Feature-E -> Feature-F -> Feature-G).
+
 
 ## Verification
 
