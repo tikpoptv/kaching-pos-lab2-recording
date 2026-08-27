@@ -3,10 +3,16 @@ import {
   createSale,
   getSaleById,
   cancelSale,
+  addItemToSale,
+  updateSaleItemQuantity,
+  removeSaleItem,
   SaleNotFoundError,
   SaleVersionConflictError,
   InvalidSaleStateError,
   MissingVersionFieldError,
+  ProductNotFoundError,
+  InvalidQuantityError,
+  ItemNotFoundError,
 } from "./sales.service.js";
 
 export const salesRouter = Router();
@@ -46,6 +52,40 @@ salesRouter.post("/:id/cancel", async (req: Request, res: Response, next: NextFu
   }
 });
 
+// Feature-E: Cart Endpoints
+salesRouter.post("/:id/items", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { barcode, productId } = req.body;
+    const result = await addItemToSale(id, { barcode, productId });
+    const statusCode = result.isNew ? 201 : 200;
+    res.status(statusCode).json(result.item);
+  } catch (error) {
+    next(error);
+  }
+});
+
+salesRouter.patch("/:id/items/:itemId", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id, itemId } = req.params;
+    const { quantity } = req.body;
+    const item = await updateSaleItemQuantity(id, itemId, quantity);
+    res.status(200).json(item);
+  } catch (error) {
+    next(error);
+  }
+});
+
+salesRouter.delete("/:id/items/:itemId", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id, itemId } = req.params;
+    const result = await removeSaleItem(id, itemId);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Error handling middleware for sales routes
 salesRouter.use((error: Error, _req: Request, res: Response, next: NextFunction) => {
   if (error instanceof MissingVersionFieldError) {
@@ -60,7 +100,34 @@ salesRouter.use((error: Error, _req: Request, res: Response, next: NextFunction)
   if (error instanceof InvalidSaleStateError) {
     return res.status(400).json({
       code: "INVALID_SALE_STATE",
-      title: "Cannot Cancel Sale",
+      title: "Cannot Modify Cart",
+      message: error.message,
+      retryable: false,
+    });
+  }
+
+  if (error instanceof InvalidQuantityError) {
+    return res.status(400).json({
+      code: "INVALID_QUANTITY",
+      title: "Invalid Quantity",
+      message: error.message,
+      retryable: false,
+    });
+  }
+
+  if (error instanceof ProductNotFoundError) {
+    return res.status(404).json({
+      code: "PRODUCT_NOT_FOUND",
+      title: "Product Not Found",
+      message: error.message,
+      retryable: false,
+    });
+  }
+
+  if (error instanceof ItemNotFoundError) {
+    return res.status(404).json({
+      code: "ITEM_NOT_FOUND",
+      title: "Item Not Found",
       message: error.message,
       retryable: false,
     });

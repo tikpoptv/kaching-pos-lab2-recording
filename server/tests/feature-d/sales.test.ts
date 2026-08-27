@@ -70,6 +70,7 @@ describe("Feature-D: Sale Lifecycle Management API", () => {
       vatAmount: "0.00",
       totalAmount: "0.00",
       version: 1,
+      items: [],
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
     });

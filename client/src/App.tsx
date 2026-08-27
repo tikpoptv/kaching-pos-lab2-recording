@@ -1,7 +1,20 @@
-import { useState, useRef } from "react";
-import { checkSystem, createSale, cancelSale, Product, SaleDto } from "./api.js";
+import { useState, useRef, useEffect } from "react";
+import {
+  checkSystem,
+  createSale,
+  cancelSale,
+  getSale,
+  addItemToCart,
+  updateCartItemQuantity,
+  removeCartItem,
+  Product,
+  SaleDto,
+} from "./api.js";
 import SaleHeader from "./components/SaleHeader.js";
 import CancelSaleModal from "./components/CancelSaleModal.js";
+import BarcodeScannerInput from "./components/BarcodeScannerInput.js";
+import CartTable from "./components/CartTable.js";
+import ProductSearchModal from "./components/ProductSearchModal.js";
 
 type UiState = "idle" | "loading" | "success" | "error";
 
@@ -15,14 +28,28 @@ export default function App() {
   const [state, setState] = useState<UiState>("idle");
   const [products, setProducts] = useState<Product[]>([]);
   
-  // Feature-D Active Sale State
+  // Feature-D & Feature-E Active Sale & Cart State
   const [sale, setSale] = useState<SaleDto | null>(null);
   const [saleLoading, setSaleLoading] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState<string>("");
 
   const cancelTriggerRef = useRef<HTMLButtonElement>(null);
+
+  // Global hotkey F2 to open product search modal
+  useEffect(() => {
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      if (e.key === "F2" && sale && sale.status === "OPEN" && !isCancelModalOpen) {
+        e.preventDefault();
+        setIsSearchModalOpen(true);
+      }
+    }
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [sale, isCancelModalOpen]);
 
   async function handleCheck() {
     setState("loading");
@@ -39,9 +66,11 @@ export default function App() {
   async function handleStartSale() {
     setSaleLoading(true);
     setSaleError(null);
+    setAnnouncement("");
     try {
       const newSale = await createSale();
       setSale(newSale);
+      setAnnouncement(`Started new sale ${newSale.saleNumber}`);
     } catch (err: any) {
       setSaleError(err.message ?? "Unable to start a new sale.");
     } finally {
@@ -57,25 +86,82 @@ export default function App() {
       const cancelled = await cancelSale(sale.id, sale.version);
       setSale(cancelled);
       setIsCancelModalOpen(false);
+      setAnnouncement(`Sale ${cancelled.saleNumber} cancelled.`);
     } catch (err: any) {
       setSaleError(err.message ?? "Unable to cancel sale.");
     } finally {
       setIsCancelling(false);
-      // Restore focus to cancel button after modal closes
       cancelTriggerRef.current?.focus();
     }
   }
 
+  async function refreshSale(saleId: string) {
+    const updated = await getSale(saleId);
+    setSale(updated);
+  }
+
+  async function handleScanBarcode(barcode: string) {
+    if (!sale || sale.status !== "OPEN") return;
+    setSaleError(null);
+    try {
+      const item = await addItemToCart(sale.id, { barcode });
+      await refreshSale(sale.id);
+      setAnnouncement(`Added 1x ${item.nameSnapshot} to cart. Line total: ${money.format(Number(item.extendedAmount))}`);
+    } catch (err: any) {
+      setSaleError(err.message ?? "Unable to add product.");
+      throw err;
+    }
+  }
+
+  async function handleSelectSearchProduct(product: Product) {
+    if (!sale || sale.status !== "OPEN") return;
+    setSaleError(null);
+    try {
+      const item = await addItemToCart(sale.id, { productId: product.id });
+      await refreshSale(sale.id);
+      setAnnouncement(`Added 1x ${item.nameSnapshot} to cart from search.`);
+    } catch (err: any) {
+      setSaleError(err.message ?? "Unable to add product from search.");
+    }
+  }
+
+  async function handleUpdateQuantity(itemId: string, newQty: number) {
+    if (!sale || sale.status !== "OPEN") return;
+    setSaleError(null);
+    try {
+      const updatedItem = await updateCartItemQuantity(sale.id, itemId, newQty);
+      await refreshSale(sale.id);
+      setAnnouncement(`Updated ${updatedItem.nameSnapshot} quantity to ${updatedItem.quantity}.`);
+    } catch (err: any) {
+      setSaleError(err.message ?? "Unable to update item quantity.");
+    }
+  }
+
+  async function handleRemoveItem(itemId: string) {
+    if (!sale || sale.status !== "OPEN") return;
+    setSaleError(null);
+    try {
+      await removeCartItem(sale.id, itemId);
+      await refreshSale(sale.id);
+      setAnnouncement("Item removed from cart.");
+    } catch (err: any) {
+      setSaleError(err.message ?? "Unable to remove item.");
+    }
+  }
+
   const isOffline = state === "error";
+  const isOpenSale = sale !== null && sale.status === "OPEN";
 
   return (
     <main className="min-vh-100 bg-light">
-      <header className="brand-bar" />
-      <div className="container py-5" style={{ maxWidth: 900 }}>
+      <header className="brand-bar" style={{ height: 6, backgroundColor: "#FA4616" }} />
+      <div className="container py-5" style={{ maxWidth: 1000 }}>
         <section className="mb-4">
-          <p className="eyebrow mb-2">KMUTT · Point of Sale</p>
+          <p className="eyebrow mb-2 text-uppercase fw-bold text-secondary" style={{ fontSize: 14 }}>
+            KMUTT · Point of Sale
+          </p>
           <h1 className="display-6 fw-bold mb-2">Kaching POS</h1>
-          <p className="text-secondary mb-0">POS Lab 2: Sale Lifecycle Management Engine.</p>
+          <p className="text-secondary mb-0">POS Lab 2: Cart and Sale-Item Management Engine.</p>
         </section>
 
         {/* Feature-D Active Sale Header */}
@@ -88,12 +174,36 @@ export default function App() {
           </div>
         )}
 
-        {/* Feature-D Error Alert Banner */}
+        {/* Error Alert Banner */}
         {saleError && (
-          <div className="alert alert-warning alert-dismissible fade show mb-4" role="alert">
+          <div className="alert alert-danger alert-dismissible fade show mb-4" role="alert" data-testid="sale-error-banner">
             <strong>Notice:</strong> {saleError}
             <button type="button" className="btn-close" onClick={() => setSaleError(null)} aria-label="Close" />
           </div>
+        )}
+
+        {/* Screen Reader Announcement Banner */}
+        <div className="visually-hidden" aria-live="polite" data-testid="sr-announcements">
+          {announcement}
+        </div>
+
+        {/* Feature-E Barcode Scanner Input */}
+        {isOpenSale && (
+          <BarcodeScannerInput
+            onScan={handleScanBarcode}
+            onOpenSearch={() => setIsSearchModalOpen(true)}
+            disabled={isOffline}
+          />
+        )}
+
+        {/* Feature-E Cart Table Workspace */}
+        {isOpenSale && (
+          <CartTable
+            items={sale.items ?? []}
+            onUpdateQuantity={handleUpdateQuantity}
+            onRemoveItem={handleRemoveItem}
+            disabled={isOffline}
+          />
         )}
 
         {/* Feature-D Sale Action Panel */}
@@ -104,19 +214,19 @@ export default function App() {
 
             <div className="d-flex flex-wrap align-items-center gap-3">
               <button
-                className="btn btn-kmutt px-4 min-target"
-                style={{ minHeight: 44, minWidth: 44, backgroundColor: "#B33100", color: "#FFFFFF" }}
+                className="btn px-4 min-target text-white"
+                style={{ minHeight: 44, minWidth: 44, backgroundColor: "#B33100" }}
                 onClick={handleStartSale}
-                disabled={saleLoading || (sale !== null && sale.status === "OPEN") || isOffline}
+                disabled={saleLoading || isOpenSale || isOffline}
                 data-testid="start-sale-btn"
               >
                 {saleLoading ? "Starting sale..." : "Start New Sale"}
               </button>
 
-              {sale && sale.status === "OPEN" && (
+              {isOpenSale && (
                 <button
                   ref={cancelTriggerRef}
-                  className="btn btn-danger px-4 min-target"
+                  className="btn btn-danger px-4 min-target text-white"
                   style={{ minHeight: 44, minWidth: 44, backgroundColor: "#B42318" }}
                   onClick={() => setIsCancelModalOpen(true)}
                   disabled={isCancelling || isOffline}
@@ -199,6 +309,15 @@ export default function App() {
             cancelTriggerRef.current?.focus();
           }}
           isCancelling={isCancelling}
+        />
+      )}
+
+      {/* Feature-E Product Search Modal Dialog */}
+      {isOpenSale && (
+        <ProductSearchModal
+          isOpen={isSearchModalOpen}
+          onSelectProduct={handleSelectSearchProduct}
+          onClose={() => setIsSearchModalOpen(false)}
         />
       )}
     </main>
