@@ -16,3 +16,4 @@ server/prisma/*.db
 .idea/
 .vscode/
 coverage/
+test.md
