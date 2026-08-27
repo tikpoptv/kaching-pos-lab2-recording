@@ -36,6 +36,7 @@ export interface SaleDto {
   terminalId: string | null;
   cashierId: string | null;
   subtotal: string;
+  discountPercentage: string | null;
   discountAmount: string;
   vatAmount: string;
   totalAmount: string;
@@ -151,4 +152,18 @@ export async function removeCartItem(saleId: string, itemId: string): Promise<{ 
 export async function searchActiveProducts(query?: string): Promise<Product[]> {
   const param = query ? `?search=${encodeURIComponent(query)}` : "";
   return getJson<Product[]>(`/api/v1/products${param}`);
+}
+
+export async function applyOrderDiscount(
+  saleId: string,
+  payload: { type: "PERCENTAGE" | "AMOUNT"; percentage?: number; amount?: string }
+): Promise<SaleDto> {
+  return postJson<{ type: "PERCENTAGE" | "AMOUNT"; percentage?: number; amount?: string }, SaleDto>(
+    `/api/v1/sales/${saleId}/discount`,
+    payload
+  );
+}
+
+export async function clearOrderDiscount(saleId: string): Promise<SaleDto> {
+  return deleteJson<SaleDto>(`/api/v1/sales/${saleId}/discount`);
 }

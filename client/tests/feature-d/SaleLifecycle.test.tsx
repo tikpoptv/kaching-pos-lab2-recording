@@ -18,6 +18,7 @@ describe("Feature-D: Client Sale Lifecycle Management UI", () => {
     terminalId: null,
     cashierId: null,
     subtotal: "0.00",
+    discountPercentage: null,
     discountAmount: "0.00",
     vatAmount: "0.00",
     totalAmount: "0.00",

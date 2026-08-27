@@ -140,6 +140,7 @@ describe("Feature-F: VAT-Inclusive Pricing and Total Calculation Engine", () => 
       terminalId: null,
       cashierId: null,
       subtotal: "100.00",
+      discountPercentage: null,
       discountAmount: "0.00",
       vatAmount: "6.54",
       totalAmount: "100.00",
