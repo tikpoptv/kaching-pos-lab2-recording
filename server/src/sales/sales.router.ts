@@ -6,6 +6,8 @@ import {
   addItemToSale,
   updateSaleItemQuantity,
   removeSaleItem,
+  applySaleDiscount,
+  clearSaleDiscount,
   SaleNotFoundError,
   SaleVersionConflictError,
   InvalidSaleStateError,
@@ -13,6 +15,8 @@ import {
   ProductNotFoundError,
   InvalidQuantityError,
   ItemNotFoundError,
+  InvalidDiscountPercentageError,
+  InvalidDiscountAmountError,
 } from "./sales.service.js";
 
 export const salesRouter = Router();
@@ -86,6 +90,28 @@ salesRouter.delete("/:id/items/:itemId", async (req: Request, res: Response, nex
   }
 });
 
+// Feature-G: Order Discount Endpoints
+salesRouter.post("/:id/discount", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { type, percentage, amount } = req.body;
+    const sale = await applySaleDiscount(id, { type, percentage, amount });
+    res.status(200).json(sale);
+  } catch (error) {
+    next(error);
+  }
+});
+
+salesRouter.delete("/:id/discount", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const sale = await clearSaleDiscount(id);
+    res.status(200).json(sale);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Error handling middleware for sales routes
 salesRouter.use((error: Error, _req: Request, res: Response, next: NextFunction) => {
   if (error instanceof MissingVersionFieldError) {
@@ -100,7 +126,25 @@ salesRouter.use((error: Error, _req: Request, res: Response, next: NextFunction)
   if (error instanceof InvalidSaleStateError) {
     return res.status(400).json({
       code: "INVALID_SALE_STATE",
-      title: "Cannot Modify Cart",
+      title: "Cannot Modify Sale",
+      message: error.message,
+      retryable: false,
+    });
+  }
+
+  if (error instanceof InvalidDiscountPercentageError) {
+    return res.status(400).json({
+      code: "INVALID_DISCOUNT_PERCENTAGE",
+      title: "Invalid Discount Percentage",
+      message: error.message,
+      retryable: false,
+    });
+  }
+
+  if (error instanceof InvalidDiscountAmountError) {
+    return res.status(400).json({
+      code: "INVALID_DISCOUNT_AMOUNT",
+      title: "Invalid Discount Amount",
       message: error.message,
       retryable: false,
     });

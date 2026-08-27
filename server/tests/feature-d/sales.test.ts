@@ -66,6 +66,7 @@ describe("Feature-D: Sale Lifecycle Management API", () => {
       terminalId: null,
       cashierId: null,
       subtotal: "0.00",
+      discountPercentage: null,
       discountAmount: "0.00",
       vatAmount: "0.00",
       totalAmount: "0.00",

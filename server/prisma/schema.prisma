@@ -38,8 +38,9 @@ model Sale {
   storeId        String?
   terminalId     String?
   cashierId      String?
-  subtotal       Decimal    @default(0.00) @db.Decimal(12, 2)
-  discountAmount Decimal    @default(0.00) @db.Decimal(12, 2)
+  subtotal           Decimal    @default(0.00) @db.Decimal(12, 2)
+  discountPercentage Decimal?   @db.Decimal(5, 2)
+  discountAmount     Decimal    @default(0.00) @db.Decimal(12, 2)
   vatAmount      Decimal    @default(0.00) @db.Decimal(12, 2)
   totalAmount    Decimal    @default(0.00) @db.Decimal(12, 2)
   version        Int        @default(1)

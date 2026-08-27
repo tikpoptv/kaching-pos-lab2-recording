@@ -1,12 +1,17 @@
 import React from "react";
+import DiscountForm from "./DiscountForm.js";
 
 interface TotalsSummaryPanelProps {
   subtotal: string;
+  discountPercentage?: string | null;
   discountAmount: string;
   vatAmount: string;
   totalAmount: string;
   isUpdating?: boolean;
   vatRateLabel?: string;
+  onApplyDiscount?: (payload: { type: "PERCENTAGE" | "AMOUNT"; percentage?: number; amount?: string }) => Promise<void>;
+  onClearDiscount?: () => Promise<void>;
+  disabled?: boolean;
 }
 
 function formatThb(valueStr: string): string {
@@ -22,11 +27,15 @@ function formatThb(valueStr: string): string {
 
 export default function TotalsSummaryPanel({
   subtotal,
+  discountPercentage = null,
   discountAmount,
   vatAmount,
   totalAmount,
   isUpdating = false,
   vatRateLabel = "VAT (7% included)",
+  onApplyDiscount,
+  onClearDiscount,
+  disabled = false,
 }: TotalsSummaryPanelProps) {
   return (
     <div
@@ -53,8 +62,23 @@ export default function TotalsSummaryPanel({
           </span>
         </div>
 
+        {/* Feature-G Order Discount Entry Form */}
+        {onApplyDiscount && onClearDiscount && (
+          <DiscountForm
+            subtotal={subtotal}
+            activeDiscountPercentage={discountPercentage}
+            activeDiscountAmount={discountAmount}
+            onApplyDiscount={onApplyDiscount}
+            onClearDiscount={onClearDiscount}
+            disabled={disabled || isUpdating}
+          />
+        )}
+
         <div className="d-flex justify-content-between align-items-center mb-2" data-testid="discount-row">
-          <span className="text-secondary">Discount</span>
+          <span className="text-secondary">
+            Discount
+            {discountPercentage && Number(discountPercentage) > 0 ? ` (${discountPercentage}%)` : ""}
+          </span>
           <span
             className="fw-semibold text-end"
             style={{ fontVariantNumeric: "tabular-nums" }}

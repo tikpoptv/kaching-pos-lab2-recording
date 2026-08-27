@@ -7,6 +7,8 @@ import {
   addItemToCart,
   updateCartItemQuantity,
   removeCartItem,
+  applyOrderDiscount,
+  clearOrderDiscount,
   Product,
   SaleDto,
 } from "./api.js";
@@ -15,7 +17,6 @@ import CancelSaleModal from "./components/CancelSaleModal.js";
 import BarcodeScannerInput from "./components/BarcodeScannerInput.js";
 import CartTable from "./components/CartTable.js";
 import ProductSearchModal from "./components/ProductSearchModal.js";
-
 import TotalsSummaryPanel from "./components/TotalsSummaryPanel.js";
 
 type UiState = "idle" | "loading" | "success" | "error";
@@ -30,7 +31,7 @@ export default function App() {
   const [state, setState] = useState<UiState>("idle");
   const [products, setProducts] = useState<Product[]>([]);
   
-  // Feature-D & Feature-E & Feature-F Active Sale & Cart State
+  // Feature-D & Feature-E & Feature-F & Feature-G Active Sale State
   const [sale, setSale] = useState<SaleDto | null>(null);
   const [saleLoading, setSaleLoading] = useState(false);
   const [isCartUpdating, setIsCartUpdating] = useState(false);
@@ -176,6 +177,48 @@ export default function App() {
     }
   }
 
+  async function handleApplyDiscount(payload: { type: "PERCENTAGE" | "AMOUNT"; percentage?: number; amount?: string }) {
+    if (!sale || sale.status !== "OPEN") return;
+    const previousSaleState = sale;
+    setSaleError(null);
+    setIsCartUpdating(true);
+    try {
+      const updatedSale = await applyOrderDiscount(sale.id, payload);
+      setSale(updatedSale);
+      if (payload.type === "PERCENTAGE") {
+        setAnnouncement(`Applied ${payload.percentage}% discount. Total amount: ${updatedSale.totalAmount} THB.`);
+      } else {
+        setAnnouncement(`Applied ${payload.amount} THB discount. Total amount: ${updatedSale.totalAmount} THB.`);
+      }
+    } catch (err: any) {
+      setSale(previousSaleState);
+      setSaleError(err.message ?? "Failed to apply discount. Totals restored to previous state.");
+      setAnnouncement("Failed to apply discount. Totals restored to previous state.");
+      throw err;
+    } finally {
+      setIsCartUpdating(false);
+    }
+  }
+
+  async function handleClearDiscount() {
+    if (!sale || sale.status !== "OPEN") return;
+    const previousSaleState = sale;
+    setSaleError(null);
+    setIsCartUpdating(true);
+    try {
+      const updatedSale = await clearOrderDiscount(sale.id);
+      setSale(updatedSale);
+      setAnnouncement("Discount cleared.");
+    } catch (err: any) {
+      setSale(previousSaleState);
+      setSaleError(err.message ?? "Failed to clear discount. Totals restored to previous state.");
+      setAnnouncement("Failed to clear discount. Totals restored to previous state.");
+      throw err;
+    } finally {
+      setIsCartUpdating(false);
+    }
+  }
+
   const isOffline = state === "error";
   const isOpenSale = sale !== null && sale.status === "OPEN";
 
@@ -188,7 +231,7 @@ export default function App() {
             KMUTT · Point of Sale
           </p>
           <h1 className="display-6 fw-bold mb-2">Kaching POS</h1>
-          <p className="text-secondary mb-0">POS Lab 2: VAT-Inclusive Pricing and Total Calculation Engine.</p>
+          <p className="text-secondary mb-0">POS Lab 2: Order-Level Discount Management Engine.</p>
         </section>
 
         {/* Feature-D Active Sale Header */}
@@ -238,14 +281,18 @@ export default function App() {
           </div>
 
           <div className="col-lg-5 col-xl-4">
-            {/* Feature-F Totals Summary Panel */}
+            {/* Feature-F & Feature-G Totals Summary Panel & Discount Form */}
             {sale && (
               <TotalsSummaryPanel
                 subtotal={sale.subtotal}
+                discountPercentage={sale.discountPercentage}
                 discountAmount={sale.discountAmount}
                 vatAmount={sale.vatAmount}
                 totalAmount={sale.totalAmount}
                 isUpdating={isCartUpdating}
+                onApplyDiscount={isOpenSale ? handleApplyDiscount : undefined}
+                onClearDiscount={isOpenSale ? handleClearDiscount : undefined}
+                disabled={isOffline || !isOpenSale}
               />
             )}
 
@@ -292,7 +339,6 @@ export default function App() {
             </section>
           </div>
         </div>
-
 
         {/* Lab 1 Baseline System Check */}
         <section className="card border-0 shadow-sm">

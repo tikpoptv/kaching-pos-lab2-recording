@@ -50,6 +50,20 @@ export class ItemNotFoundError extends Error {
   }
 }
 
+export class InvalidDiscountPercentageError extends Error {
+  constructor() {
+    super("Discount percentage must be between 0.00 and 100.00 inclusive.");
+    this.name = "InvalidDiscountPercentageError";
+  }
+}
+
+export class InvalidDiscountAmountError extends Error {
+  constructor(maxAmountStr: string = "0.00") {
+    super(`Discount amount cannot be negative or exceed the order subtotal (${maxAmountStr} THB).`);
+    this.name = "InvalidDiscountAmountError";
+  }
+}
+
 export interface SaleItemDto {
   id: string;
   saleId: string;
@@ -71,6 +85,7 @@ export interface SaleDto {
   terminalId: string | null;
   cashierId: string | null;
   subtotal: string;
+  discountPercentage: string | null;
   discountAmount: string;
   vatAmount: string;
   totalAmount: string;
@@ -80,12 +95,19 @@ export interface SaleDto {
   items: SaleItemDto[];
 }
 
+export interface DiscountInputOptions {
+  percentage?: Prisma.Decimal | string | number | null;
+  amount?: Prisma.Decimal | string | number | null;
+}
+
 export interface CalculatedTotals {
   subtotal: Prisma.Decimal;
+  discountPercentage: Prisma.Decimal | null;
   discountAmount: Prisma.Decimal;
   vatAmount: Prisma.Decimal;
   totalAmount: Prisma.Decimal;
   subtotalStr: string;
+  discountPercentageStr: string | null;
   discountAmountStr: string;
   vatAmountStr: string;
   totalAmountStr: string;
@@ -93,7 +115,7 @@ export interface CalculatedTotals {
 
 export function calculateSaleTotals(
   items: Array<{ unitPriceSnapshot: Prisma.Decimal | string; quantity: number }>,
-  discountAmountInput: Prisma.Decimal | string = "0.00",
+  discountInput: Prisma.Decimal | string | number | DiscountInputOptions = "0.00",
   vatRateInput: Prisma.Decimal | string = "7.00"
 ): CalculatedTotals {
   let subtotal = new Prisma.Decimal("0.00");
@@ -103,12 +125,33 @@ export function calculateSaleTotals(
     subtotal = subtotal.add(lineAmount);
   }
 
-  const discountAmount = new Prisma.Decimal(discountAmountInput);
+  let discountPercentage: Prisma.Decimal | null = null;
+  let discountAmount = new Prisma.Decimal("0.00");
+
+  if (
+    typeof discountInput === "object" &&
+    discountInput !== null &&
+    !("d" in discountInput)
+  ) {
+    const opts = discountInput as DiscountInputOptions;
+    if (opts.percentage !== undefined && opts.percentage !== null) {
+      discountPercentage = new Prisma.Decimal(opts.percentage);
+      discountAmount = subtotal
+        .mul(discountPercentage)
+        .div(100)
+        .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    } else if (opts.amount !== undefined && opts.amount !== null) {
+      discountPercentage = null;
+      discountAmount = new Prisma.Decimal(opts.amount);
+    }
+  } else {
+    discountPercentage = null;
+    discountAmount = new Prisma.Decimal(discountInput as Prisma.Decimal | string | number);
+  }
+
   const taxableTotal = Prisma.Decimal.max(new Prisma.Decimal("0.00"), subtotal.sub(discountAmount));
   const vatRate = new Prisma.Decimal(vatRateInput);
 
-  // vatAmount = taxableTotal * vatRate / (100 + vatRate)
-  // Commercial satang rounding to 2 decimal places using Decimal.ROUND_HALF_UP (4)
   const hundred = new Prisma.Decimal("100");
   const vatAmount = taxableTotal
     .mul(vatRate)
@@ -119,10 +162,12 @@ export function calculateSaleTotals(
 
   return {
     subtotal,
+    discountPercentage,
     discountAmount,
     vatAmount,
     totalAmount,
     subtotalStr: subtotal.toFixed(2),
+    discountPercentageStr: discountPercentage ? discountPercentage.toFixed(2) : null,
     discountAmountStr: discountAmount.toFixed(2),
     vatAmountStr: vatAmount.toFixed(2),
     totalAmountStr: totalAmount.toFixed(2),
@@ -140,12 +185,29 @@ export async function recalculateSaleTotalsInDb(saleId: string): Promise<Calcula
     throw new SaleNotFoundError(saleId);
   }
 
-  const totals = calculateSaleTotals(sale.items, sale.discountAmount, "7.00");
+  let discountInput: DiscountInputOptions = {};
+  if (sale.discountPercentage !== null && sale.discountPercentage !== undefined) {
+    discountInput = { percentage: sale.discountPercentage };
+  } else {
+    let subtotal = new Prisma.Decimal("0.00");
+    for (const item of sale.items) {
+      subtotal = subtotal.add(new Prisma.Decimal(item.unitPriceSnapshot).mul(item.quantity));
+    }
+    let amount = sale.discountAmount;
+    if (subtotal.lt(amount)) {
+      amount = subtotal;
+    }
+    discountInput = { amount };
+  }
+
+  const totals = calculateSaleTotals(sale.items, discountInput, "7.00");
 
   await prisma.sale.update({
     where: { id: saleId },
     data: {
       subtotal: totals.subtotal,
+      discountPercentage: totals.discountPercentage,
+      discountAmount: totals.discountAmount,
       vatAmount: totals.vatAmount,
       totalAmount: totals.totalAmount,
     },
@@ -178,6 +240,10 @@ export function formatSaleDto(sale: Sale & { items?: SaleItem[] }): SaleDto {
     terminalId: sale.terminalId,
     cashierId: sale.cashierId,
     subtotal: sale.subtotal.toFixed(2),
+    discountPercentage:
+      sale.discountPercentage !== null && sale.discountPercentage !== undefined
+        ? sale.discountPercentage.toFixed(2)
+        : null,
     discountAmount: sale.discountAmount.toFixed(2),
     vatAmount: sale.vatAmount.toFixed(2),
     totalAmount: sale.totalAmount.toFixed(2),
@@ -187,7 +253,6 @@ export function formatSaleDto(sale: Sale & { items?: SaleItem[] }): SaleDto {
     items: sale.items ? sale.items.map(formatSaleItemDto) : [],
   };
 }
-
 
 export async function createSale(): Promise<SaleDto> {
   const prisma = getPrisma();
@@ -214,6 +279,7 @@ export async function createSale(): Promise<SaleDto> {
       saleNumber,
       status: SaleStatus.OPEN,
       subtotal: new Prisma.Decimal("0.00"),
+      discountPercentage: null,
       discountAmount: new Prisma.Decimal("0.00"),
       vatAmount: new Prisma.Decimal("0.00"),
       totalAmount: new Prisma.Decimal("0.00"),
@@ -283,7 +349,6 @@ export async function cancelSale(id: string, version: number): Promise<SaleDto> 
     },
   });
 
-  // Log structured JSON audit entry per NFR-008 & SDS Section 9.4
   console.log(
     JSON.stringify({
       event: "SALE_CANCELLED",
@@ -344,7 +409,6 @@ export async function addItemToSale(
     throw new ProductNotFoundError(identifier);
   }
 
-  // Check if item already exists in this sale
   const existingItem = await prisma.saleItem.findUnique({
     where: {
       saleId_productId: {
@@ -475,6 +539,170 @@ export async function removeSaleItem(
     message: "Item removed from cart.",
     itemId,
   };
+}
+
+export async function applySaleDiscount(
+  saleId: string,
+  payload: { type: "PERCENTAGE" | "AMOUNT"; percentage?: number; amount?: string }
+): Promise<SaleDto> {
+  const prisma = getPrisma();
+  const sale = await prisma.sale.findUnique({
+    where: { id: saleId },
+    include: { items: true },
+  });
+
+  if (!sale) {
+    throw new SaleNotFoundError(saleId);
+  }
+
+  if (sale.status !== SaleStatus.OPEN) {
+    throw new InvalidSaleStateError(sale.status, "modified");
+  }
+
+  let discountPercentage: Prisma.Decimal | null = null;
+  let discountAmount = new Prisma.Decimal("0.00");
+
+  let subtotal = new Prisma.Decimal("0.00");
+  for (const item of sale.items) {
+    subtotal = subtotal.add(new Prisma.Decimal(item.unitPriceSnapshot).mul(item.quantity));
+  }
+
+  if (payload.type === "PERCENTAGE") {
+    const pct = payload.percentage;
+    if (pct === undefined || pct === null || typeof pct !== "number" || isNaN(pct) || pct < 0 || pct > 100) {
+      throw new InvalidDiscountPercentageError();
+    }
+    if (pct === 0) {
+      discountPercentage = null;
+      discountAmount = new Prisma.Decimal("0.00");
+    } else {
+      discountPercentage = new Prisma.Decimal(pct.toFixed(2));
+      discountAmount = subtotal
+        .mul(discountPercentage)
+        .div(100)
+        .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    }
+  } else if (payload.type === "AMOUNT") {
+    const amtStr = payload.amount;
+    if (amtStr === undefined || amtStr === null || typeof amtStr !== "string" || !/^\d+(\.\d{1,2})?$/.test(amtStr)) {
+      throw new InvalidDiscountAmountError(subtotal.toFixed(2));
+    }
+    const amtDecimal = new Prisma.Decimal(amtStr);
+    if (amtDecimal.lt(0) || amtDecimal.gt(subtotal)) {
+      throw new InvalidDiscountAmountError(subtotal.toFixed(2));
+    }
+    if (amtDecimal.equals(0)) {
+      discountPercentage = null;
+      discountAmount = new Prisma.Decimal("0.00");
+    } else {
+      discountPercentage = null;
+      discountAmount = amtDecimal;
+    }
+  } else {
+    throw new Error("Invalid discount type.");
+  }
+
+  const totals = calculateSaleTotals(
+    sale.items,
+    discountPercentage !== null ? { percentage: discountPercentage } : { amount: discountAmount },
+    "7.00"
+  );
+
+  const updated = await prisma.sale.update({
+    where: { id: saleId },
+    data: {
+      subtotal: totals.subtotal,
+      discountPercentage: discountPercentage,
+      discountAmount: totals.discountAmount,
+      vatAmount: totals.vatAmount,
+      totalAmount: totals.totalAmount,
+      version: { increment: 1 },
+    },
+    include: {
+      items: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  console.log(
+    JSON.stringify({
+      event: "ORDER_DISCOUNT_MUTATED",
+      saleId: updated.id,
+      saleNumber: updated.saleNumber,
+      actor: "cashier",
+      role: "Cashier",
+      storeId: updated.storeId ?? "store-01",
+      terminalId: updated.terminalId ?? "term-01",
+      action: payload.type === "PERCENTAGE" ? "APPLY_PERCENTAGE" : "APPLY_AMOUNT",
+      discountPercentage: updated.discountPercentage ? updated.discountPercentage.toFixed(2) : null,
+      discountAmount: updated.discountAmount.toFixed(2),
+      subtotalBefore: sale.subtotal.toFixed(2),
+      subtotalAfter: updated.subtotal.toFixed(2),
+      totalAmountAfter: updated.totalAmount.toFixed(2),
+      outcome: "SUCCESS",
+      timestamp: updated.updatedAt.toISOString(),
+    })
+  );
+
+  return formatSaleDto(updated);
+}
+
+export async function clearSaleDiscount(saleId: string): Promise<SaleDto> {
+  const prisma = getPrisma();
+  const sale = await prisma.sale.findUnique({
+    where: { id: saleId },
+    include: { items: true },
+  });
+
+  if (!sale) {
+    throw new SaleNotFoundError(saleId);
+  }
+
+  if (sale.status !== SaleStatus.OPEN) {
+    throw new InvalidSaleStateError(sale.status, "modified");
+  }
+
+  const totals = calculateSaleTotals(sale.items, { amount: "0.00" }, "7.00");
+
+  const updated = await prisma.sale.update({
+    where: { id: saleId },
+    data: {
+      subtotal: totals.subtotal,
+      discountPercentage: null,
+      discountAmount: new Prisma.Decimal("0.00"),
+      vatAmount: totals.vatAmount,
+      totalAmount: totals.totalAmount,
+      version: { increment: 1 },
+    },
+    include: {
+      items: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  console.log(
+    JSON.stringify({
+      event: "ORDER_DISCOUNT_MUTATED",
+      saleId: updated.id,
+      saleNumber: updated.saleNumber,
+      actor: "cashier",
+      role: "Cashier",
+      storeId: updated.storeId ?? "store-01",
+      terminalId: updated.terminalId ?? "term-01",
+      action: "CLEAR_DISCOUNT",
+      discountPercentage: null,
+      discountAmount: "0.00",
+      subtotalBefore: sale.subtotal.toFixed(2),
+      subtotalAfter: updated.subtotal.toFixed(2),
+      totalAmountAfter: updated.totalAmount.toFixed(2),
+      outcome: "SUCCESS",
+      timestamp: updated.updatedAt.toISOString(),
+    })
+  );
+
+  return formatSaleDto(updated);
 }
 
 export async function searchActiveProducts(query?: string, limit: number = 20) {
