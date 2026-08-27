@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { checkSystem, Product } from "./api.js";
+import { useState, useRef } from "react";
+import { checkSystem, createSale, cancelSale, Product, SaleDto } from "./api.js";
+import SaleHeader from "./components/SaleHeader.js";
+import CancelSaleModal from "./components/CancelSaleModal.js";
 
 type UiState = "idle" | "loading" | "success" | "error";
 
@@ -12,6 +14,15 @@ const money = new Intl.NumberFormat("en-TH", {
 export default function App() {
   const [state, setState] = useState<UiState>("idle");
   const [products, setProducts] = useState<Product[]>([]);
+  
+  // Feature-D Active Sale State
+  const [sale, setSale] = useState<SaleDto | null>(null);
+  const [saleLoading, setSaleLoading] = useState(false);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [saleError, setSaleError] = useState<string | null>(null);
+
+  const cancelTriggerRef = useRef<HTMLButtonElement>(null);
 
   async function handleCheck() {
     setState("loading");
@@ -25,6 +36,38 @@ export default function App() {
     }
   }
 
+  async function handleStartSale() {
+    setSaleLoading(true);
+    setSaleError(null);
+    try {
+      const newSale = await createSale();
+      setSale(newSale);
+    } catch (err: any) {
+      setSaleError(err.message ?? "Unable to start a new sale.");
+    } finally {
+      setSaleLoading(false);
+    }
+  }
+
+  async function handleConfirmCancel() {
+    if (!sale) return;
+    setIsCancelling(true);
+    setSaleError(null);
+    try {
+      const cancelled = await cancelSale(sale.id, sale.version);
+      setSale(cancelled);
+      setIsCancelModalOpen(false);
+    } catch (err: any) {
+      setSaleError(err.message ?? "Unable to cancel sale.");
+    } finally {
+      setIsCancelling(false);
+      // Restore focus to cancel button after modal closes
+      cancelTriggerRef.current?.focus();
+    }
+  }
+
+  const isOffline = state === "error";
+
   return (
     <main className="min-vh-100 bg-light">
       <header className="brand-bar" />
@@ -32,9 +75,70 @@ export default function App() {
         <section className="mb-4">
           <p className="eyebrow mb-2">KMUTT · Point of Sale</p>
           <h1 className="display-6 fw-bold mb-2">Kaching POS</h1>
-          <p className="text-secondary mb-0">Lab 1 baseline: API connectivity and the global product catalog.</p>
+          <p className="text-secondary mb-0">POS Lab 2: Sale Lifecycle Management Engine.</p>
         </section>
 
+        {/* Feature-D Active Sale Header */}
+        {sale && <SaleHeader sale={sale} />}
+
+        {/* Persistent Offline Warning Banner (NFR-012) */}
+        {isOffline && (
+          <div className="alert alert-danger mb-4 d-flex align-items-center gap-2" role="alert" data-testid="offline-banner">
+            <span className="fw-bold">API Disconnected.</span> Checkout operations and sale creation are currently disabled. Check network connectivity.
+          </div>
+        )}
+
+        {/* Feature-D Error Alert Banner */}
+        {saleError && (
+          <div className="alert alert-warning alert-dismissible fade show mb-4" role="alert">
+            <strong>Notice:</strong> {saleError}
+            <button type="button" className="btn-close" onClick={() => setSaleError(null)} aria-label="Close" />
+          </div>
+        )}
+
+        {/* Feature-D Sale Action Panel */}
+        <section className="card border-0 shadow-sm mb-4">
+          <div className="card-body p-4">
+            <h2 className="h5 mb-2">Checkout Actions</h2>
+            <p className="text-secondary mb-3">Start a new sale or manage the current sale lifecycle.</p>
+
+            <div className="d-flex flex-wrap align-items-center gap-3">
+              <button
+                className="btn btn-kmutt px-4 min-target"
+                style={{ minHeight: 44, minWidth: 44, backgroundColor: "#B33100", color: "#FFFFFF" }}
+                onClick={handleStartSale}
+                disabled={saleLoading || (sale !== null && sale.status === "OPEN") || isOffline}
+                data-testid="start-sale-btn"
+              >
+                {saleLoading ? "Starting sale..." : "Start New Sale"}
+              </button>
+
+              {sale && sale.status === "OPEN" && (
+                <button
+                  ref={cancelTriggerRef}
+                  className="btn btn-danger px-4 min-target"
+                  style={{ minHeight: 44, minWidth: 44, backgroundColor: "#B42318" }}
+                  onClick={() => setIsCancelModalOpen(true)}
+                  disabled={isCancelling || isOffline}
+                  data-testid="cancel-sale-btn"
+                >
+                  Cancel Sale
+                </button>
+              )}
+            </div>
+
+            <div className="mt-3" aria-live="polite">
+              {saleLoading && <p className="text-secondary mb-0">Creating a new sale aggregate in backend...</p>}
+              {sale && sale.status === "CANCELLED" && (
+                <p className="text-danger mb-0">
+                  Sale {sale.saleNumber} has been cancelled. Click "Start New Sale" to begin a new transaction.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Lab 1 Baseline System Check */}
         <section className="card border-0 shadow-sm">
           <div className="card-body p-4">
             <div className="d-flex flex-wrap align-items-center justify-content-between gap-3">
@@ -42,7 +146,7 @@ export default function App() {
                 <h2 className="h5 mb-1">System readiness</h2>
                 <p className="text-secondary mb-0">Verify the API and seeded product data.</p>
               </div>
-              <button className="btn btn-kmutt" onClick={handleCheck} disabled={state === "loading"}>
+              <button className="btn btn-outline-secondary min-target" style={{ minHeight: 44 }} onClick={handleCheck} disabled={state === "loading"}>
                 {state === "loading" ? "Checking…" : "Check system"}
               </button>
             </div>
@@ -62,7 +166,9 @@ export default function App() {
                   </div>
                   <div className="table-responsive">
                     <table className="table align-middle mb-0">
-                      <thead><tr><th>Code</th><th>Product</th><th>Barcode</th><th className="text-end">Price</th></tr></thead>
+                      <thead>
+                        <tr><th>Code</th><th>Product</th><th>Barcode</th><th className="text-end">Price</th></tr>
+                      </thead>
                       <tbody>
                         {products.map((product) => (
                           <tr key={product.id}>
@@ -81,6 +187,20 @@ export default function App() {
           </div>
         </section>
       </div>
+
+      {/* Cancel Sale Confirmation Modal Dialog */}
+      {sale && (
+        <CancelSaleModal
+          isOpen={isCancelModalOpen}
+          saleNumber={sale.saleNumber}
+          onConfirm={handleConfirmCancel}
+          onClose={() => {
+            setIsCancelModalOpen(false);
+            cancelTriggerRef.current?.focus();
+          }}
+          isCancelling={isCancelling}
+        />
+      )}
     </main>
   );
 }

@@ -1,12 +1,15 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { getPrisma } from "./prisma.js";
+import { salesRouter } from "./sales/sales.router.js";
 
 export const app = express();
 
 app.disable("x-powered-by");
 app.use(cors());
 app.use(express.json());
+
+app.use("/api/v1/sales", salesRouter);
 
 app.get("/api/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok", service: "Kaching API" });
@@ -37,3 +40,4 @@ app.get("/api/products", async (_req: Request, res: Response) => {
 });
 
 export default app;
+
